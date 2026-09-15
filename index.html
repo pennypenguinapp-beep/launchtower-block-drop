@@ -52,7 +52,7 @@
     display:flex; flex-direction:column; align-items:center; justify-content:center;
     gap:14px; border-radius:8px; text-align:center; padding:16px;
   }
-  .overlay h3{font-size:20px; letter-spacing:2px;}
+  .overlay h3{font-size:30px; letter-spacing:3px;}
   .overlay p{font-size:12px; color:var(--dim); line-height:1.7;}
   .overlay .big{color:var(--accent2); font-size:22px; font-weight:700;}
   .boardwrap{position:relative;}
@@ -62,7 +62,7 @@
     font-size:13px; cursor:pointer; letter-spacing:1px;
   }
   button:active{background:#232c3d;}
-  button.primary{background:var(--accent); color:#04211d; border-color:var(--accent); font-weight:700;}
+  button.primary{background:var(--accent); color:#04211d; border-color:var(--accent); font-weight:700; font-size:18px; padding:14px 34px; letter-spacing:2px;}
   .controls{
     display:grid; grid-template-columns:repeat(3,1fr); gap:8px;
     width:100%; max-width:420px; padding:6px 12px 10px;
@@ -110,9 +110,9 @@
       <h3 id="ovTitle">BLOCK DROP</h3>
       <div class="big hidden" id="ovScore">0</div>
       <p id="ovText">
-        &larr;/&rarr; move &middot; &uarr; rotate<br>
-        &darr; soft drop &middot; space hard drop<br>
-        C hold &middot; P pause
+        Stack the falling pieces &mdash; clear lines to score.<br>
+        &larr;/&rarr; move &middot; &uarr; rotate &middot; space hard drop<br>
+        C hold &middot; P pause &middot; swipe on touch
       </p>
       <button class="primary" id="startBtn">PLAY</button>
     </div>
@@ -190,9 +190,38 @@ function fitBoard(){
   var maxH=window.innerHeight-260;
   CELL=Math.max(16, Math.min(30, Math.floor(maxW/COLS), Math.floor(maxH/ROWS)));
   board.width=COLS*CELL; board.height=ROWS*CELL;
+  board.style.width=(COLS*CELL)+"px";
+  board.style.height=(ROWS*CELL)+"px";
 }
 fitBoard();
 window.addEventListener("resize", function(){ fitBoard(); draw(); });
+
+// WebAudio sound cues (no audio files)
+var AC=null;
+function ac(){
+  if(!AC){ try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
+  if(AC && AC.state==="suspended"){ AC.resume(); }
+  return AC;
+}
+function beep(freq,dur,type,vol,when){
+  var a=ac(); if(!a) return;
+  try{
+    var o=a.createOscillator(), g=a.createGain();
+    o.type=type||"square"; o.frequency.value=freq;
+    var t0=a.currentTime+(when||0);
+    g.gain.setValueAtTime(vol||0.05,t0);
+    g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+    o.connect(g); g.connect(a.destination);
+    o.start(t0); o.stop(t0+dur+0.02);
+  }catch(e){}
+}
+function sfxLock(){ beep(180,0.08,"square",0.05); }
+function sfxLine(n){
+  var base=[523,659,784,1046];
+  for(var i=0;i<Math.min(n+1,4);i++) beep(base[i],0.12,"square",0.06,i*0.06);
+}
+function sfxOver(){ beep(220,0.25,"sawtooth",0.06); beep(110,0.35,"sawtooth",0.05,0.12); }
+function sfxStart(){ beep(440,0.08,"square",0.05); beep(660,0.1,"square",0.05,0.08); }
 
 var grid, cur, hold, holdUsed, bag, queue;
 var score, lines, level, best, dropTimer, dropInterval;
@@ -336,6 +365,7 @@ function lockPiece(){
     flash={rows:full, t:0.28};
     var pts=[0,100,300,500,800][full.length];
     score+=pts*level;
+    sfxLine(full.length);
     lines+=full.length;
     level=1+Math.floor(lines/10);
     dropInterval=Math.max(80, 800-Math.floor((level-1)*70));
@@ -351,6 +381,7 @@ function lockPiece(){
   holdUsed=false;
   dropTimer=0;
   if(!canPlace(cur.m,cur.x,cur.y)){ gameOver(); }
+  else { sfxLock(); }
 }
 
 function updateHud(){
@@ -366,9 +397,11 @@ function gameOver(){
   updateHud();
   ovTitle.textContent="GAME OVER";
   ovText.innerHTML="Score <b>"+score+"</b> &middot; Best <b>"+best+"</b>";
-  ovScore.classList.add("hidden");
+  ovScore.classList.remove("hidden");
+  ovScore.textContent=score;
   startBtn.textContent="PLAY AGAIN";
   overlay.classList.remove("hidden");
+  sfxOver();
 }
 
 function start(){
@@ -381,6 +414,7 @@ function start(){
   cur=spawnPiece();
   state="play";
   overlay.classList.add("hidden");
+  sfxStart();
   drawMini(holdCv,hctx,null);
   updateHud();
 }
@@ -552,6 +586,11 @@ board.addEventListener("touchend",function(e){
 startBtn.addEventListener("click",function(){
   if(state==="pause") togglePause();
   else start();
+});
+
+// auto-pause when tab hidden
+document.addEventListener("visibilitychange",function(){
+  if(document.hidden && state==="play") togglePause();
 });
 
 // initial menu draw
